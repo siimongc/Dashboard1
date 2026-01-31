@@ -1,160 +1,151 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 
-# 1. Configuración de la página
-st.set_page_config(
-    page_title="EDA Energías Renovables",
-    page_icon="🌱",
-    layout="wide"
-)
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Data Science Energy Analytics", layout="wide", page_icon="🔬")
 
-# Estilos CSS personalizados para mejorar la apariencia
+# Estilo personalizado para mejorar la UI
 st.markdown("""
     <style>
-    .main {
-        background-color: #f5f7f9;
-    }
-    .stMetric {
-        background-color: #ffffff;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
+    .stMetric { border: 1px solid #e6e9ef; padding: 15px; border-radius: 10px; background-color: #ffffff; }
+    .main { background-color: #f8f9fa; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("⚡ Dashboard de Análisis: Sector de Energía Renovable")
-st.markdown("Carga tu archivo CSV para desglosar el análisis en componentes cualitativos, cuantitativos y visuales.")
+# --- HEADER Y NARRATIVA ---
+st.title("🔬 Renewable Energy Intelligence Portal")
+st.markdown("""
+    Bienvenido al portal de analítica avanzada. Esta herramienta transforma datos crudos en 
+    **historias accionables** mediante tres bloques de análisis y un motor de segmentación.
+""")
 
-# --- BARRA LATERAL (SIDEBAR) ---
-st.sidebar.header("📂 Configuración de Datos")
-archivo_subido = st.sidebar.file_uploader("Sube tu archivo .csv aquí", type=["csv"])
+# --- CARGA DE DATOS Y SIDEBAR ---
+st.sidebar.header("📁 Control de Datos")
+uploaded_file = st.sidebar.file_uploader("Sube tu archivo .csv", type=["csv"])
 
-if archivo_subido is not None:
-    # Función de carga con caché
+if uploaded_file is not None:
     @st.cache_data
-    def cargar_datos(file):
+    def load_and_preprocess(file):
         df = pd.read_csv(file)
-        # Limpieza básica: convertir fechas
         if 'Fecha_Entrada_Operacion' in df.columns:
             df['Fecha_Entrada_Operacion'] = pd.to_datetime(df['Fecha_Entrada_Operacion'])
         return df
 
-    df = cargar_datos(archivo_subido)
+    df_raw = load_and_preprocess(uploaded_file)
 
-    # Filtros Dinámicos
-    st.sidebar.divider()
-    st.sidebar.subheader("Filtros Globales")
-    
-    # Filtro de Tecnología
-    tecnologias = sorted(df['Tecnologia'].unique())
-    tech_sel = st.sidebar.multiselect("Tecnologías:", tecnologias, default=tecnologias)
+    # Filtros Dinámicos que afectan a toda la historia
+    with st.sidebar.expander("🎯 Segmentación del Mercado", expanded=True):
+        tech_list = sorted(df_raw['Tecnologia'].unique())
+        selected_tech = st.multiselect("Tecnología:", tech_list, default=tech_list)
+        
+        op_list = sorted(df_raw['Operador'].unique())
+        selected_op = st.multiselect("Operador:", op_list, default=op_list)
 
-    # Filtro de Operadores
-    operadores = sorted(df['Operador'].unique())
-    op_sel = st.sidebar.multiselect("Operadores:", operadores, default=operadores)
+    # DataFrame Filtrado
+    df = df_raw[(df_raw['Tecnologia'].isin(selected_tech)) & (df_raw['Operador'].isin(selected_op))]
 
-    # Filtrado del DataFrame
-    df_filtrado = df[(df['Tecnologia'].isin(tech_sel)) & (df['Operador'].isin(op_sel))]
+    # --- ESTRUCTURA DE BLOQUES ---
+    tab_cual, tab_cuan, tab_graf, tab_ml = st.tabs([
+        "📊 Bloque Cualitativo", "🔢 Bloque Cuantitativo", "📈 Bloque Gráfico", "🤖 Segmentación (ML)"
+    ])
 
-    # --- ORGANIZACIÓN EN TABS (BLOQUES) ---
-    tab_cual, tab_cuan, tab_graf = st.tabs(["📊 Bloque Cualitativo", "🔢 Bloque Cuantitativo", "📈 Bloque Gráfico"])
-
-    # --- 1. BLOQUE CUALITATIVO (Variables Categóricas) ---
+    # --- 1. BLOQUE CUALITATIVO (¿Quién y Qué?) ---
     with tab_cual:
-        st.header("Análisis de Variables Cualitativas")
-        st.info("Este bloque analiza las categorías, estados y distribución de los proyectos.")
+        st.header("Análisis de Composición y Categorías")
+        c1, c2 = st.columns(2)
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Distribución por Tecnología")
-            conteo_tech = df_filtrado['Tecnologia'].value_counts().reset_index()
-            conteo_tech.columns = ['Tecnología', 'Cantidad de Proyectos']
-            st.table(conteo_tech)
+        with c1:
+            st.subheader("Cuota de Mercado por Tecnología")
+            fig_pie = px.pie(df, names='Tecnologia', values='Capacidad_Instalada_MW', hole=0.4,
+                            color_discrete_sequence=px.colors.qualitative.Pastel)
+            st.plotly_chart(fig_pie, use_container_width=True)
+            
+        with c2:
+            st.subheader("Estado Operativo de las Plantas")
+            fig_sun = px.sunburst(df, path=['Estado_Actual', 'Tecnologia'], values='Capacidad_Instalada_MW')
+            st.plotly_chart(fig_sun, use_container_width=True)
 
-        with col2:
-            st.subheader("Estado Actual de Proyectos")
-            conteo_estado = df_filtrado['Estado_Actual'].value_counts().reset_index()
-            conteo_estado.columns = ['Estado', 'Frecuencia']
-            st.dataframe(conteo_estado, use_container_width=True)
-
-        st.divider()
-        st.subheader("Exploración de Operadores")
-        st.write(f"Se identifican **{df_filtrado['Operador'].nunique()}** operadores activos en la selección actual.")
-        st.dataframe(df_filtrado[['ID_Proyecto', 'Tecnologia', 'Operador', 'Estado_Actual', 'Conectado_SIN']].head(15), use_container_width=True)
-
-    # --- 2. BLOQUE CUANTITATIVO (Números y Estadísticas) ---
+    # --- 2. BLOQUE CUANTITATIVO (¿Cuánto?) ---
     with tab_cuan:
-        st.header("Análisis Numérico y Descriptivo")
+        st.header("Estadística Descriptiva Avanzada")
         
-        # KPIs Superiores
-        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-        kpi1.metric("Capacidad Total", f"{df_filtrado['Capacidad_Instalada_MW'].sum():,.0f} MW")
-        kpi2.metric("Inversión Total", f"${df_filtrado['Inversion_Inicial_MUSD'].sum():,.1f} M")
-        kpi3.metric("Eficiencia Promedio", f"{df_filtrado['Eficiencia_Planta_Pct'].mean():,.1f}%")
-        kpi4.metric("Generación Media", f"{df_filtrado['Generacion_Diaria_MWh'].mean():,.1f} MWh")
+        # KPIs Dinámicos
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Capacidad Total", f"{df['Capacidad_Instalada_MW'].sum():,.0f} MW")
+        m2.metric("Inversión Acumulada", f"${df['Inversion_Inicial_MUSD'].sum():,.1f} M")
+        m3.metric("Eficiencia Promedio", f"{df['Eficiencia_Planta_Pct'].mean():.1f}%")
+        m4.metric("Generación Diaria", f"{df['Generacion_Diaria_MWh'].sum():,.0f} MWh")
 
         st.divider()
         
-        st.subheader("Resumen Estadístico")
-        # Seleccionamos solo columnas numéricas para el resumen
-        resumen = df_filtrado.describe().T
-        st.dataframe(resumen.style.format("{:,.2f}"), use_container_width=True)
-
-        st.subheader("Análisis de Correlación")
-        # Matriz de correlación para entender relaciones entre inversión, capacidad y eficiencia
-        corr = df_filtrado.select_dtypes(include=['number']).corr()
-        fig_corr = px.imshow(corr, text_auto=True, color_continuous_scale='Viridis', title="Correlación entre Variables")
-        st.plotly_chart(fig_corr, use_container_width=True)
-
-    # --- 3. BLOQUE GRÁFICO (Visualizaciones Avanzadas) ---
-    with tab_graf:
-        st.header("Visualización Dinámica de Datos")
+        col_sel = st.selectbox("Analizar distribución de:", 
+                              ['Capacidad_Instalada_MW', 'Generacion_Diaria_MWh', 'Eficiencia_Planta_Pct', 'Inversion_Inicial_MUSD'])
         
-        tipo_grafico = st.radio(
-            "Selecciona el tipo de análisis visual:",
-            ["Relación Inversión vs Generación", "Composición de Capacidad", "Distribución de Eficiencia"],
-            horizontal=True
+        sc1, sc2 = st.columns([1, 2])
+        with sc1:
+            st.write("**Métricas de Forma y Tendencia Central**")
+            stats = pd.Series({
+                "Media": df[col_sel].mean(),
+                "Mediana": df[col_sel].median(),
+                "Desviación Est.": df[col_sel].std(),
+                "Asimetría (Skew)": df[col_sel].skew(),
+                "Kurtosis": df[col_sel].kurtosis()
+            })
+            st.table(stats)
+        
+        with sc2:
+            fig_hist = px.histogram(df, x=col_sel, color="Tecnologia", marginal="rug",
+                                   title=f"Histograma de {col_sel} por Tecnología")
+            st.plotly_chart(fig_hist, use_container_width=True)
+
+    # --- 3. BLOQUE GRÁFICO (Storytelling Visual) ---
+    with tab_graf:
+        st.header("Visualización de Relaciones Críticas")
+        
+        st.subheader("¿Cómo se traduce la inversión en eficiencia?")
+        fig_scatter = px.scatter(
+            df, x="Inversion_Inicial_MUSD", y="Eficiencia_Planta_Pct",
+            color="Tecnologia", size="Capacidad_Instalada_MW",
+            hover_name="ID_Proyecto", trendline="ols",
+            title="Relación Inversión vs Eficiencia (con Línea de Tendencia)"
         )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+        
+        st.subheader("Comparativa de Rendimiento por Operador")
+        fig_box = px.box(df, x="Operador", y="Generacion_Diaria_MWh", color="Tecnologia",
+                        title="Dispersión de Generación por Operador")
+        st.plotly_chart(fig_box, use_container_width=True)
 
-        if tipo_grafico == "Relación Inversión vs Generación":
-            fig = px.scatter(
-                df_filtrado, 
-                x="Inversion_Inicial_MUSD", 
-                y="Generacion_Diaria_MWh",
-                color="Tecnologia",
-                size="Capacidad_Instalada_MW",
-                hover_name="ID_Proyecto",
-                trendline="ols",
-                title="¿Influye la inversión en la generación diaria?"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-        elif tipo_grafico == "Composición de Capacidad":
-            fig = px.sunburst(
-                df_filtrado, 
-                path=['Tecnologia', 'Estado_Actual'], 
-                values='Capacidad_Instalada_MW',
-                title="Jerarquía de Capacidad por Tecnología y Estado"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-        elif tipo_grafico == "Distribución de Eficiencia":
-            fig = px.box(
-                df_filtrado, 
-                x="Tecnologia", 
-                y="Eficiencia_Planta_Pct", 
-                color="Tecnologia",
-                points="all",
-                title="Variabilidad de Eficiencia por Fuente de Energía"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+    # --- 4. BLOQUE MACHINE LEARNING (Descubrimiento) ---
+    with tab_ml:
+        st.header("🤖 Segmentación Automática mediante K-Means")
+        st.markdown("Agrupamos los proyectos basándonos en sus similitudes estadísticas (Inversión vs Capacidad).")
+        
+        clusters = st.slider("Selecciona número de clusters (grupos):", 2, 6, 3)
+        
+        # Preparación para Clustering
+        X = df[['Inversion_Inicial_MUSD', 'Capacidad_Instalada_MW']].dropna()
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        model = KMeans(n_clusters=clusters, random_state=42)
+        df.loc[X.index, 'Cluster'] = model.fit_predict(X_scaled).astype(str)
+        
+        fig_ml = px.scatter(
+            df, x="Inversion_Inicial_MUSD", y="Capacidad_Instalada_MW",
+            color="Cluster", symbol="Tecnologia",
+            size="Eficiencia_Planta_Pct",
+            title=f"Resultados de la Segmentación en {clusters} Grupos"
+        )
+        st.plotly_chart(fig_ml, use_container_width=True)
+        st.info("💡 Los clusters revelan qué proyectos tienen comportamientos atípicos o son 'líderes de eficiencia' en su rango de inversión.")
 
 else:
-    # Estado inicial: Sin archivo
-    st.info("👋 ¡Bienvenido! Por favor, usa la barra lateral para subir tu archivo `energia_renovable.csv`.")
-    st.image("https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80", 
-             caption="Análisis de Energía Limpia para un futuro sostenible")
+    st.warning("⚠️ Esperando carga de datos para iniciar el motor de análisis.")
+    st.image("https://images.unsplash.com/photo-1466611653911-95282fc3656b?q=80&w=2070&auto=format&fit=crop", 
+             caption="Energía para el futuro a través de los datos")
